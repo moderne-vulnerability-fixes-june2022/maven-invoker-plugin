@@ -30,7 +30,7 @@ under the License.
   </parent>
 
   <artifactId>maven-invoker-plugin</artifactId>
-  <version>2.0.0-TALEND</version>
+  <version>2.0.1-TALEND-SNAPSHOT</version>
   <packaging>maven-plugin</packaging>
 
   <name>Apache Maven Invoker Plugin</name>

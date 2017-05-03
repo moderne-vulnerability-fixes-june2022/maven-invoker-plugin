@@ -119,6 +119,14 @@ public class InstallMojo
      */
     @Parameter( property = "invoker.skip", defaultValue = "false" )
     private boolean skipInstallation;
+    
+    
+    /**
+     * A flag used to resolve only dependencies of the current pom and not include previous reactor artifacts.
+     *
+     */
+    @Parameter( property = "only.resolve.dependencies", defaultValue = "false" )
+    private boolean onlyResolveDependencies;
 
     /**
      * The identifiers of already installed artifacts, used to avoid multiple installation of the same artifact.
@@ -154,7 +162,7 @@ public class InstallMojo
     private String[] extraArtifacts;
 
     /**
-     * A flag used to exclude the extra Artifacts depenencies in test scope
+     * A flag used to exclude the extra Artifacts dependencies in test scope
      *
      * @since 2.1
      */
@@ -200,7 +208,14 @@ public class InstallMojo
         installedArtifacts = new HashSet<String>();
         copiedArtifacts = new HashSet<String>();
 
-        installProjectDependencies( project, reactorProjects, testRepository );
+        if ( onlyResolveDependencies )
+        {
+            installProjectDependencies( project, reactorProjects, testRepository );
+        }
+        else
+        {
+            installProjectDependenciesAndReactor( project, reactorProjects, testRepository );
+        }
         installProjectParents( project, testRepository );
         installProjectArtifacts( project, testRepository );
 
@@ -449,8 +464,8 @@ public class InstallMojo
      * @param testRepository The local repository to install the POMs to, must not be <code>null</code>.
      * @throws MojoExecutionException If any dependency could not be installed.
      */
-    private void installProjectDependencies( MavenProject mvnProject, Collection<MavenProject> reactorProjects,
-                                             ArtifactRepository testRepository )
+    private void installProjectDependenciesAndReactor( MavenProject mvnProject, 
+            Collection<MavenProject> reactorProjects, ArtifactRepository testRepository )
         throws MojoExecutionException
     {
         // keep track if we have passed mvnProject in reactorProjects
@@ -518,6 +533,80 @@ public class InstallMojo
         }
     }
 
+    
+    /**
+     * Installs the dependent projects from the reactor to the local repository. The dependencies on other modules from
+     * the reactor must be installed or the forked IT builds will fail when using a clean repository.
+     *
+     * @param mvnProject The project whose dependent projects should be installed, must not be <code>null</code>.
+     * @param reactorProjects The set of projects in the reactor build, must not be <code>null</code>.
+     * @param testRepository The local repository to install the POMs to, must not be <code>null</code>.
+     * @throws MojoExecutionException If any dependency could not be installed.
+     */
+    private void installProjectDependencies( MavenProject mvnProject, Collection<MavenProject> reactorProjects,
+                                             ArtifactRepository testRepository )
+        throws MojoExecutionException
+    {
+
+
+        // index available reactor projects
+        Map<String, MavenProject> projects = new HashMap<String, MavenProject>();
+        for ( MavenProject reactorProject : reactorProjects )
+        {
+            String projectId =
+                reactorProject.getGroupId() + ':' + reactorProject.getArtifactId() + ':' + reactorProject.getVersion();
+            projects.put( projectId, reactorProject );
+        }
+
+        // group transitive dependencies (even those that don't contribute to the class path like POMs) ...
+        Collection<Artifact> artifacts = (Collection<Artifact>) mvnProject.getArtifacts();
+        // ... and those that were resolved from the (local) repo
+        Collection<Artifact> dependencyArtifacts = new LinkedHashSet<Artifact>();
+        // ... andthose  that were resolved from reactor projects ...
+        Collection<String> dependencyProjects = new LinkedHashSet<String>();
+
+        for ( Artifact artifact : artifacts )
+        {
+            // workaround for MNG-2961 to ensure the base version does not contain a timestamp
+            artifact.isSnapshot();
+
+            String projectId = artifact.getGroupId() + ':' + artifact.getArtifactId() + ':' + artifact.getBaseVersion();
+
+            if ( !projects.containsKey( projectId ) )
+            {
+                dependencyArtifacts.add( artifact );
+            }
+            else
+            {
+                dependencyProjects.add( projectId );
+            }
+        }
+
+        // install dependencies
+        try
+        {
+            // copy dependencies that where resolved from the local repo
+            for ( Artifact artifact : dependencyArtifacts )
+            {
+                copyArtifact( artifact, testRepository );
+            }
+
+            // install dependencies that were resolved from the reactor
+            for ( String projectId : dependencyProjects )
+            {
+                MavenProject dependencyProject = projects.get( projectId );
+
+                installProjectArtifacts( dependencyProject, testRepository );
+                installProjectParents( dependencyProject, testRepository );
+            }
+        }
+        catch ( Exception e )
+        {
+            throw new MojoExecutionException( "Failed to install project dependencies: " + mvnProject, e );
+        }
+    }
+    
+    
     private void copyArtifact( Artifact artifact, ArtifactRepository testRepository )
         throws MojoExecutionException
     {
