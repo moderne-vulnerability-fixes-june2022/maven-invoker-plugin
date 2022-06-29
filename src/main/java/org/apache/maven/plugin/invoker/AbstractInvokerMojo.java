@@ -30,6 +30,7 @@ import java.io.InputStream;
 import java.io.OutputStreamWriter;
 import java.io.Reader;
 import java.io.Writer;
+import java.nio.file.Files;
 import java.text.DecimalFormat;
 import java.text.DecimalFormatSymbols;
 import java.util.ArrayList;
@@ -966,9 +967,7 @@ public abstract class AbstractInvokerMojo
                         // avoid infinite recursion if the cloneTo path is a subdirectory.
                         if ( cloneSubdir != null )
                         {
-                            File temp = File.createTempFile( "pre-invocation-clone.", "" );
-                            temp.delete();
-                            temp.mkdirs();
+                            File temp = Files.createTempDirectory("pre-invocation-clone." + "").toFile();
 
                             copyDirectoryStructure( projectsDirectory, temp );
 
